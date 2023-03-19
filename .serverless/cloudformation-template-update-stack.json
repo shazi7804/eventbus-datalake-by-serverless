@@ -1,0 +1,314 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "The AWS CloudFormation template for this Serverless application",
+  "Resources": {
+    "ServerlessDeploymentBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ServerlessDeploymentBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "ServerlessDeploymentBucket"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:*",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition"
+                      },
+                      ":s3:::",
+                      {
+                        "Ref": "ServerlessDeploymentBucket"
+                      },
+                      "/*"
+                    ]
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition"
+                      },
+                      ":s3:::",
+                      {
+                        "Ref": "ServerlessDeploymentBucket"
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "EventBridgeRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Description": "catch-all rule for event bus",
+        "EventBusName": "default",
+        "EventPattern": {
+          "account": [
+            {
+              "Ref": "AWS::AccountId"
+            }
+          ]
+        },
+        "Name": "catch-all-rule",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "KinesisDataFirehoseDeliveryStream",
+                "Arn"
+              ]
+            },
+            "Id": "kinesis-firehose-delivery-stream",
+            "RoleArn": {
+              "Fn::GetAtt": [
+                "EventBridgeKinesisDataFirehoseTargetRole",
+                "Arn"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "S3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "AccessControl": "Private",
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "BucketName": "eventbus-datalake-us-east-1"
+      }
+    },
+    "EventBridgeKinesisDataFirehoseTargetRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "events.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "eventbridge-to-kinesis-firehose-policy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "firehose:PutRecord"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::GetAtt": [
+                        "KinesisDataFirehoseDeliveryStream",
+                        "Arn"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "KinesisDataFirehoseRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "firehose.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "sts:ExternalId": {
+                    "Ref": "AWS::AccountId"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "kinesis-firehose-policy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:AbortMultipartUpload",
+                    "s3:GetBucketLocation",
+                    "s3:GetObject",
+                    "s3:ListBucket",
+                    "s3:ListBucketMultipartUploads",
+                    "s3:PutObject"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "${S3Bucket.Arn}"
+                    },
+                    {
+                      "Fn::Sub": "${S3Bucket.Arn}/*"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "KinesisDataFirehoseDeliveryStream": {
+      "Type": "AWS::KinesisFirehose::DeliveryStream",
+      "Properties": {
+        "DeliveryStreamName": "eventbusDatalake",
+        "DeliveryStreamType": "DirectPut",
+        "S3DestinationConfiguration": {
+          "BucketARN": {
+            "Fn::GetAtt": [
+              "S3Bucket",
+              "Arn"
+            ]
+          },
+          "BufferingHints": {
+            "IntervalInSeconds": 60,
+            "SizeInMBs": 1
+          },
+          "CloudWatchLoggingOptions": {
+            "Enabled": false
+          },
+          "CompressionFormat": "UNCOMPRESSED",
+          "RoleARN": {
+            "Fn::GetAtt": [
+              "KinesisDataFirehoseRole",
+              "Arn"
+            ]
+          }
+        }
+      }
+    },
+    "FirehoseThrottlesAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "DependsOn": [
+        "KinesisDataFirehoseDeliveryStream"
+      ],
+      "Properties": {
+        "AlarmName": "FirehoseThrottlesAlarm",
+        "AlarmDescription": "Trigger an alarm if a throttle is recorded",
+        "AlarmActions": [
+          {
+            "Ref": "Topic"
+          }
+        ],
+        "MetricName": "ThrottledRecords",
+        "Namespace": "AWS/Firehose",
+        "Dimensions": [
+          {
+            "Name": "DeliveryStreamName",
+            "Value": "eventbusDatalake"
+          }
+        ],
+        "Statistic": "Sum",
+        "Period": 60,
+        "EvaluationPeriods": 1,
+        "Threshold": 10,
+        "ComparisonOperator": "GreaterThanThreshold"
+      }
+    },
+    "Dashboard": {
+      "Type": "AWS::CloudWatch::Dashboard",
+      "Properties": {
+        "DashboardName": "eventbusDatalake",
+        "DashboardBody": "{\n    \"widgets\": [\n        {\n            \"height\": 5,\n            \"width\": 10,\n            \"y\": 0,\n            \"x\": 0,\n            \"type\": \"metric\",\n            \"properties\": {\n                \"metrics\": [\n                    [ \"AWS/Firehose\", \"DeliveryToS3.Bytes\", \"DeliveryStreamName\", \"eventbusDatalake\", { \"id\": \"m1\" } ]\n                ],\n                \"view\": \"timeSeries\",\n                \"stacked\": true,\n                \"region\": \"us-east-1\",\n                \"period\": 900,\n                \"stat\": \"Sum\"\n            }\n        },\n        {\n            \"height\": 5,\n            \"width\": 9,\n            \"y\": 0,\n            \"x\": 10,\n            \"type\": \"metric\",\n            \"properties\": {\n                \"metrics\": [\n                    [ \"AWS/Firehose\", \"DeliveryToS3.Records\", \"DeliveryStreamName\", \"eventbusDatalake\" ]\n                ],\n                \"sparkline\": true,\n                \"view\": \"timeSeries\",\n                \"region\": \"us-east-1\",\n                \"period\": 900,\n                \"stat\": \"Sum\",\n                \"stacked\": true\n            }\n        },\n        {\n            \"height\": 5,\n            \"width\": 9,\n            \"y\": 10,\n            \"x\": 0,\n            \"type\": \"metric\",\n            \"properties\": {\n                \"metrics\": [\n                    [ \"AWS/Firehose\", \"ThrottledRecords\", \"DeliveryStreamName\", \"eventbusDatalake\" ]\n                ],\n                \"view\": \"timeSeries\",\n                \"stacked\": true,\n                \"region\": \"us-east-1\",\n                \"stat\": \"Sum\",\n                \"period\": 900\n            }\n        },\n        {\n            \"height\": 5,\n            \"width\": 7,\n            \"y\": 10,\n            \"x\": 9,\n            \"type\": \"metric\",\n            \"properties\": {\n                \"view\": \"timeSeries\",\n                \"stacked\": true,\n                \"metrics\": [\n                    [ \"AWS/Firehose\", \"IncomingBytes\", \"DeliveryStreamName\", \"eventbusDatalake\" ]\n                ],\n                \"region\": \"us-east-1\"\n            }\n        },\n        {\n            \"height\": 5,\n            \"width\": 7,\n            \"y\": 10,\n            \"x\": 16,\n            \"type\": \"metric\",\n            \"properties\": {\n                \"view\": \"timeSeries\",\n                \"stacked\": true,\n                \"metrics\": [\n                    [ \"AWS/Firehose\", \"IncomingRecords\", \"DeliveryStreamName\", \"eventbusDatalake\" ]\n                ],\n                \"region\": \"us-east-1\"\n            }\n        }\n    ]\n}"
+      }
+    },
+    "Topic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {
+        "Subscription": [
+          {
+            "Endpoint": "shazi7804@gmail.com",
+            "Protocol": "email"
+          }
+        ],
+        "TopicName": "eventbusDatalake"
+      }
+    }
+  },
+  "Outputs": {
+    "ServerlessDeploymentBucketName": {
+      "Value": {
+        "Ref": "ServerlessDeploymentBucket"
+      },
+      "Export": {
+        "Name": "sls-eventbus-datalake-serverless-dev-ServerlessDeploymentBucketName"
+      }
+    }
+  }
+}

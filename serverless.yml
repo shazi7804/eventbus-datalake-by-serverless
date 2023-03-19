@@ -1,0 +1,139 @@
+service: eventbus-datalake-serverless
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+
+custom:
+  Name: eventbusDatalake
+  BucketName: eventbus-datalake
+  Region: us-east-1
+  Email: shazi7804@gmail.com
+	
+resources:
+  Resources:
+    EventBridgeRule:
+      Type: AWS::Events::Rule
+      Properties:
+        Description: catch-all rule for event bus
+        EventBusName: default
+        EventPattern:
+          account:
+          - !Ref AWS::AccountId
+        Name: catch-all-rule
+        State: ENABLED
+        Targets:
+        - Arn: !GetAtt KinesisDataFirehoseDeliveryStream.Arn
+          Id: kinesis-firehose-delivery-stream
+          RoleArn: !GetAtt EventBridgeKinesisDataFirehoseTargetRole.Arn
+    S3Bucket:
+      Type: AWS::S3::Bucket
+      Properties: 
+        AccessControl: Private
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+        BucketName: ${self:custom.BucketName}-${self:custom.Region}
+    EventBridgeKinesisDataFirehoseTargetRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - events.amazonaws.com
+            Action:
+            - sts:AssumeRole
+        Path: /
+        Policies:
+        - PolicyName: eventbridge-to-kinesis-firehose-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - firehose:PutRecord
+              Resource:
+              - !GetAtt KinesisDataFirehoseDeliveryStream.Arn
+    KinesisDataFirehoseRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - firehose.amazonaws.com
+              Action:
+                - sts:AssumeRole
+              Condition:
+                StringEquals:
+                  sts:ExternalId: !Ref AWS::AccountId
+        Path: /
+        Policies:
+          - PolicyName: kinesis-firehose-policy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - s3:AbortMultipartUpload
+                    - s3:GetBucketLocation
+                    - s3:GetObject
+                    - s3:ListBucket
+                    - s3:ListBucketMultipartUploads
+                    - s3:PutObject
+                  Resource:
+                    - !Sub ${S3Bucket.Arn}
+                    - !Sub ${S3Bucket.Arn}/*
+    KinesisDataFirehoseDeliveryStream:
+      Type: AWS::KinesisFirehose::DeliveryStream
+      Properties:
+        DeliveryStreamName: ${self:custom.Name}
+        DeliveryStreamType: DirectPut
+        S3DestinationConfiguration:
+          BucketARN: !GetAtt S3Bucket.Arn
+          BufferingHints:
+            IntervalInSeconds: 60
+            SizeInMBs: 1
+          CloudWatchLoggingOptions:
+            Enabled: false
+          CompressionFormat: UNCOMPRESSED
+          RoleARN: !GetAtt KinesisDataFirehoseRole.Arn
+## Monitoring
+    FirehoseThrottlesAlarm:
+      Type: "AWS::CloudWatch::Alarm"
+      DependsOn: KinesisDataFirehoseDeliveryStream
+      Properties:
+        AlarmName: "FirehoseThrottlesAlarm"
+        AlarmDescription: "Trigger an alarm if a throttle is recorded"
+        AlarmActions:
+          - !Ref Topic
+        MetricName: "ThrottledRecords"
+        Namespace: AWS/Firehose
+        Dimensions:
+          -
+              Name: "DeliveryStreamName"
+              Value: ${self:custom.Name}
+        Statistic: "Sum"
+        Period: 60
+        EvaluationPeriods: 1
+        Threshold: 10
+        ComparisonOperator: "GreaterThanThreshold"
+    Dashboard:
+      Type: "AWS::CloudWatch::Dashboard"
+      Properties:
+        DashboardName: ${self:custom.Name}
+        DashboardBody: ${file(dashboard-body.js):dashboardBody}
+    Topic:
+      Type: AWS::SNS::Topic
+      Properties:
+        Subscription: 
+          - Endpoint: ${self:custom.Email}
+            Protocol: email
+        TopicName: ${self:custom.Name}

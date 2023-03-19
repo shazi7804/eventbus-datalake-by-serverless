@@ -1,0 +1,86 @@
+{
+    "widgets": [
+        {
+            "height": 5,
+            "width": 10,
+            "y": 0,
+            "x": 0,
+            "type": "metric",
+            "properties": {
+                "metrics": [
+                    [ "AWS/Firehose", "DeliveryToS3.Bytes", "DeliveryStreamName", "eventbusDatalake", { "id": "m1" } ]
+                ],
+                "view": "timeSeries",
+                "stacked": true,
+                "region": "us-east-1",
+                "period": 900,
+                "stat": "Sum"
+            }
+        },
+        {
+            "height": 5,
+            "width": 9,
+            "y": 0,
+            "x": 10,
+            "type": "metric",
+            "properties": {
+                "metrics": [
+                    [ "AWS/Firehose", "DeliveryToS3.Records", "DeliveryStreamName", "eventbusDatalake" ]
+                ],
+                "sparkline": true,
+                "view": "timeSeries",
+                "region": "us-east-1",
+                "period": 900,
+                "stat": "Sum",
+                "stacked": true
+            }
+        },
+        {
+            "height": 5,
+            "width": 9,
+            "y": 10,
+            "x": 0,
+            "type": "metric",
+            "properties": {
+                "metrics": [
+                    [ "AWS/Firehose", "ThrottledRecords", "DeliveryStreamName", "eventbusDatalake" ]
+                ],
+                "view": "timeSeries",
+                "stacked": true,
+                "region": "us-east-1",
+                "stat": "Sum",
+                "period": 900
+            }
+        },
+        {
+            "height": 5,
+            "width": 7,
+            "y": 10,
+            "x": 9,
+            "type": "metric",
+            "properties": {
+                "view": "timeSeries",
+                "stacked": true,
+                "metrics": [
+                    [ "AWS/Firehose", "IncomingBytes", "DeliveryStreamName", "eventbusDatalake" ]
+                ],
+                "region": "us-east-1"
+            }
+        },
+        {
+            "height": 5,
+            "width": 7,
+            "y": 10,
+            "x": 16,
+            "type": "metric",
+            "properties": {
+                "view": "timeSeries",
+                "stacked": true,
+                "metrics": [
+                    [ "AWS/Firehose", "IncomingRecords", "DeliveryStreamName", "eventbusDatalake" ]
+                ],
+                "region": "us-east-1"
+            }
+        }
+    ]
+}
